@@ -1,0 +1,51 @@
+package cxp.backend.sauvegarde.save;
+
+import io.swagger.annotations.ApiModel;
+import org.postgresql.copy.CopyManager;
+import org.postgresql.core.BaseConnection;
+import org.springframework.stereotype.Service;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.file.Paths;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+
+@Service
+@ApiModel(value = "Classe qui cree un backup de la base de donner cxp ")
+public class BackupDatabase {
+
+    private String URL_DATABASE = "jdbc:postgresql://localhost:5432/cxp";
+
+    private String USER_NAME = "postgres";
+
+    private String PASSWORD = "admin";
+    private final String routeAbsolut = "sauvegarde_restauration\\sauvegarde";
+
+    public BackupDatabase(){
+
+    }
+    public void backupDatabase(String filPahtBackup) {
+        String repertoireCourant = filPahtBackup+routeAbsolut; // Completion du chemin de la sauvegarde recu en paramettre
+
+        String fileSqlBackup = Paths.get(repertoireCourant, "backup.sql").toString();
+
+        try (Connection connection = DriverManager.getConnection(URL_DATABASE, USER_NAME, PASSWORD)) {
+
+            BaseConnection baseConnection = (BaseConnection) connection;
+            CopyManager copyManager = new CopyManager(baseConnection);
+
+            try (FileOutputStream fos = new FileOutputStream(fileSqlBackup)) {
+                copyManager.copyOut("COPY (SELECT * FROM public.sauvegarde) TO STDOUT", fos);
+                System.out.println("Backup completed successfully!");
+
+            } catch (IOException e) {
+                System.err.println("Error during backup: " + e.getMessage());
+            }
+        } catch (SQLException e) {
+            System.err.println("Error connecting to the database: " + e.getMessage());
+        }
+
+
+    }
+}

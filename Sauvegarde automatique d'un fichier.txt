@@ -1,0 +1,156 @@
+package cxp.backend.sauvegarde.serviceimpl;
+
+import cxp.backend.sauvegarde.advice.CustumAutorisation;
+import cxp.backend.sauvegarde.advice.FileString;
+import cxp.backend.sauvegarde.entity.Sauvegarde;
+import cxp.backend.sauvegarde.repository.SauvegardeRepository;
+import cxp.backend.sauvegarde.save.BackupDatabase;
+import cxp.backend.sauvegarde.typesauvegarde.TypeSauvegarde;
+import io.swagger.annotations.ApiModel;
+import io.swagger.annotations.ApiOperation;
+import lombok.AllArgsConstructor;
+import org.apache.commons.io.FileUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.nio.file.*;
+import java.time.LocalTime;
+import java.util.Date;
+import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * @author Georges
+ * @created 28/06/2024 - 14:48
+ * @project sauvegarde_automatique-service
+ */
+
+@AllArgsConstructor
+@Component
+@ApiModel(value = "Classe pour la gestion des sauvegardes automatique")
+public class Autosave {
+    private Logger logger = LoggerFactory.getLogger(this.getClass());
+
+      @Autowired
+      private SauvegardeRepository sauvegardeRepo;
+      private BackupDatabase backupDatabase;
+
+    public Autosave() {
+        ScheduledExecutorService scheduledService = Executors.newScheduledThreadPool(1);
+
+        //Obtention de l'heure
+        LocalTime timeLocal = LocalTime.now();
+
+        ///Calcule du délait jusqu'a 11h
+        long delayPour11Am = getHours11am(timeLocal);
+        LocalTime localTime = LocalTime.ofSecondOfDay(delayPour11Am);
+        System.out.println("Prochaine sauvegarde dans :"+localTime);
+        //Planification de la tache
+        scheduledService.scheduleAtFixedRate(this::autoSave, delayPour11Am,TimeUnit.DAYS.toMillis(1),TimeUnit.SECONDS );
+        /////////////////////-------------FIN DU CONSTRUCTEUR-----------///////////////////////////////////////////////////////////
+    }
+
+    @ApiOperation(value = "Methode pour les sauvegardes automatique",notes = "Elle s'execute tous les jour à 11h00 au lancement du programme meme sans intervention de l'utilisateur")
+    public void autoSave() {
+
+        System.out.println("excution de la sauvegarde automatique");
+        Date date = new Date();
+        Sauvegarde sauvegarde = new Sauvegarde();// CREATION Automatique par le systeme d'une sauvegarde
+        sauvegarde.setTypeSauvegarde(TypeSauvegarde.AUTO);
+        sauvegarde.setUrlSauvegarde(FileString.TESTE);
+        sauvegarde.setStatutSauvegarde(true);
+        sauvegarde.setDateDebut(date);
+        sauvegarde.setNomFichier("Sauvegarde du " + date);
+        sauvegarde.setStatutSauvegarde(true);
+        sauvegarde.setCreateAt(date);
+        sauvegarde.setCreateBy(TypeSauvegarde.SYS);
+        sauvegarde.setUpdateAt(date);
+        sauvegarde.setUpdateBy(TypeSauvegarde.SYS);
+        sauvegarde.setIsDelete(false);
+        this.sauvegardeRepo.save(sauvegarde); // Ajout de l'objet sauvegarde dans la base de donner
+
+        logger.info(CustumAutorisation.ADD_SCHEDULE_SAVE);//SUCCESS
+
+        //URI VERS LE FICHIER A SAUVEGARDER :
+        final String URI = "K:\\ADVENT-SOFT\\Back_Cxp\\File";
+        Path urlFromFile = Paths.get(URI);
+        copyFile(URI,FileString.TESTE);// Methode de Sauvegarde vers le fichier test....
+
+        // ECRITURE DE LA SAUVEGARDE DANS LE FICHIER :"../../File/sauvegarde_restauration/sauvegarde"
+        Path upload = Paths.get(FileString.TESTE);
+        String nameFileSauvegarde = UUID.randomUUID().toString();
+        Path uploadPlusFileName = Paths.get(FileString.TESTE + nameFileSauvegarde + ".txt");
+
+        //if(!Files.exists(upload)){
+        try {
+            if (!Files.exists(upload))
+                Files.createDirectory(upload);
+            Files.createFile(uploadPlusFileName);
+
+            DirectoryStream<Path> paths = Files.newDirectoryStream(urlFromFile);
+            for (Path path : paths) {
+                System.out.println("Liste de tous les repertoire dans le repertoire courant: "+path.getFileName());
+            }
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        //}
+        try (BufferedWriter br = new BufferedWriter(new FileWriter(String.valueOf(uploadPlusFileName)))) {
+
+            br.write(sauvegarde.toString());// Ecriture d'éléments dans le fichier de sauvegarde
+            br.newLine();
+            br.write("Logge: " + CustumAutorisation.ADD_SCHEDULE_SAVE);
+
+            logger.info(CustumAutorisation.ADD_SCHEDULE_SAVE);
+
+        } catch (IOException exception) {
+            logger.error(CustumAutorisation.ERROR_OF_CREATION_FILE_SAUVE);
+        }
+
+    }
+
+
+// Methode pour le calcule de l'heure jusqu'a 11h00
+    private static long getHours11am(LocalTime curenttime){
+        LocalTime timeAM = LocalTime.of(11,0);
+        if(curenttime.isBefore(timeAM)){
+            return timeAM.toSecondOfDay()-curenttime.toSecondOfDay();
+        }
+        else {
+            return (LocalTime.of(23,59,59)).toSecondOfDay()-curenttime.toSecondOfDay()+timeAM.toSecondOfDay();
+        }
+    }
+
+
+    //Methode pour la Copy des fichiers
+    public  void copyFile(String source, String destination){
+        File filSource = new File(source);
+        File filDestination = new File(destination);
+        try {
+            FileUtils.copyDirectory(filSource,filDestination);// Copie de l'etat du fichier File et de tout ses sous fichiers vers un chemin courant spécifier;
+            System.out.println("Enregistrememt de l'etat des fichiers dans un repertoire courant");
+
+            //Appelle du backup
+            this.backupDatabase.backupDatabase(destination);
+        } catch (IOException exception) {
+            exception.printStackTrace();
+        }
+    }
+
+    private void zipperFile(String urlOfFile){
+        
+    }
+
+    private void unZipperFile(){
+
+    }
+
+}
